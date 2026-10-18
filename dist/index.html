@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Will Sans Font Preview</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: system-ui, sans-serif;
+      color: #252525;
+      background: #f5f4f1;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 40px 24px 64px;
+    }
+
+    h1, h2, p {
+      margin-top: 0;
+    }
+
+    h1 {
+      margin-bottom: 8px;
+      font-size: clamp(2rem, 5vw, 3rem);
+      letter-spacing: -0.04em;
+    }
+
+    .intro, .hint {
+      color: #666;
+    }
+
+    .controls, .font-card {
+      border: 1px solid #dedbd5;
+      border-radius: 12px;
+      background: #fff;
+    }
+
+    .controls {
+      margin: 28px 0;
+      padding: 20px;
+    }
+
+    .picker-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+
+    .button {
+      display: inline-block;
+      padding: 10px 14px;
+      border: 1px solid #252525;
+      border-radius: 7px;
+      color: #fff;
+      background: #252525;
+      font: inherit;
+      cursor: pointer;
+    }
+
+    .button.secondary {
+      color: #252525;
+      background: #fff;
+    }
+
+    .button:focus-visible, textarea:focus-visible, input:focus-visible {
+      outline: 3px solid #7b9cdb;
+      outline-offset: 2px;
+    }
+
+    .visually-hidden {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      clip-path: inset(50%);
+    }
+
+    .sample-label {
+      display: block;
+      margin-bottom: 7px;
+      font-weight: 600;
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 92px;
+      padding: 10px;
+      border: 1px solid #c9c6c0;
+      border-radius: 7px;
+      font: inherit;
+      resize: vertical;
+    }
+
+    .size-control {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-top: 16px;
+    }
+
+    .size-control input {
+      width: min(320px, 60%);
+    }
+
+    #status {
+      min-height: 1.5em;
+      margin: 16px 0 0;
+      color: #555;
+    }
+
+    #font-list {
+      display: grid;
+      gap: 14px;
+    }
+
+    .font-card {
+      min-width: 0;
+      padding: 18px;
+    }
+
+    .font-name {
+      margin-bottom: 12px;
+      overflow-wrap: anywhere;
+      font-size: 0.95rem;
+      font-weight: 650;
+    }
+
+    .specimen {
+      min-height: 80px;
+      overflow-wrap: anywhere;
+      white-space: pre-wrap;
+      line-height: 1.35;
+    }
+
+    .error {
+      color: #a32121;
+    }
+
+    @media (max-width: 600px) {
+      body {
+        padding: 28px 16px 48px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Will Sans Preview</h1>
+    <p class="intro">Load generated fonts and compare them using your own sample text.</p>
+  </header>
+
+  <main>
+    <section class="controls" aria-label="Preview controls">
+      <div class="picker-row">
+        <label class="button" for="folder-picker">Choose dist folder</label>
+        <input class="visually-hidden" id="folder-picker" type="file" accept=".woff,.woff2,.ttf,.otf" multiple webkitdirectory>
+        <label class="button secondary" for="file-picker">Choose font files</label>
+        <input class="visually-hidden" id="file-picker" type="file" accept=".woff,.woff2,.ttf,.otf" multiple>
+      </div>
+      <p class="hint">Choose the <code>dist</code> folder to load its fonts, or select individual WOFF/WOFF2 files. Choose the folder again after generating new fonts. You can also drop font files anywhere on this page.</p>
+
+      <label class="sample-label" for="sample-text">Sample text</label>
+      <textarea id="sample-text" spellcheck="false">The quick brown fox jumps over the lazy dog.
+ABCDEFGHIJKLMNOPQRSTUVWXYZ
+abcdefghijklmnopqrstuvwxyz 0123456789</textarea>
+
+      <label class="size-control" for="font-size">
+        <span>Preview size</span>
+        <input id="font-size" type="range" min="16" max="96" value="36">
+        <output id="font-size-value" for="font-size">36px</output>
+      </label>
+      <p id="status" role="status" aria-live="polite">Choose a folder or font files to get started.</p>
+    </section>
+
+    <section id="font-list" aria-label="Font previews"></section>
+  </main>
+
+  <script>
+    const acceptedExtensions = /\.(woff2?|ttf|otf)$/i;
+    const folderPicker = document.querySelector("#folder-picker");
+    const filePicker = document.querySelector("#file-picker");
+    const sampleText = document.querySelector("#sample-text");
+    const fontSize = document.querySelector("#font-size");
+    const fontSizeValue = document.querySelector("#font-size-value");
+    const fontList = document.querySelector("#font-list");
+    const status = document.querySelector("#status");
+    let activeFonts = [];
+    let loadGeneration = 0;
+
+    function releaseFonts() {
+      for (const { face, url } of activeFonts) {
+        document.fonts.delete(face);
+        URL.revokeObjectURL(url);
+      }
+      activeFonts = [];
+      fontList.replaceChildren();
+    }
+
+    function makeCard(name, family, error) {
+      const card = document.createElement("article");
+      card.className = "font-card";
+
+      const heading = document.createElement("h2");
+      heading.className = "font-name";
+      heading.textContent = name;
+      card.append(heading);
+
+      const specimen = document.createElement("div");
+      specimen.className = error ? "specimen error" : "specimen";
+      specimen.textContent = error || sampleText.value;
+      if (!error) {
+        specimen.style.fontFamily = `"${family}"`;
+        specimen.style.fontSize = `${fontSize.value}px`;
+      }
+      card.append(specimen);
+      fontList.append(card);
+    }
+
+    async function loadFiles(fileList) {
+      const generation = ++loadGeneration;
+      const files = Array.from(fileList).filter(file => acceptedExtensions.test(file.name));
+      releaseFonts();
+
+      if (files.length === 0) {
+        status.textContent = "No supported font files found. Choose WOFF, WOFF2, TTF, or OTF files.";
+        return;
+      }
+
+      status.textContent = `Loading ${files.length} font${files.length === 1 ? "" : "s"}…`;
+      let loadedCount = 0;
+
+      for (const [index, file] of files.entries()) {
+        const family = `WillSansPreview${index}`;
+        const url = URL.createObjectURL(file);
+        const face = new FontFace(family, `url("${url}")`);
+
+        try {
+          await face.load();
+          if (generation !== loadGeneration) {
+            URL.revokeObjectURL(url);
+            continue;
+          }
+          document.fonts.add(face);
+          activeFonts.push({ face, url });
+          makeCard(file.name, family);
+          loadedCount += 1;
+        } catch (error) {
+          URL.revokeObjectURL(url);
+          makeCard(file.name, null, `Could not load this font: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+
+      if (generation === loadGeneration) {
+        status.textContent = `Loaded ${loadedCount} of ${files.length} font${files.length === 1 ? "" : "s"}.`;
+      }
+    }
+
+    folderPicker.addEventListener("change", () => {
+      loadFiles(folderPicker.files);
+      folderPicker.value = "";
+    });
+    filePicker.addEventListener("change", () => {
+      loadFiles(filePicker.files);
+      filePicker.value = "";
+    });
+
+    sampleText.addEventListener("input", () => {
+      for (const specimen of fontList.querySelectorAll(".specimen:not(.error)")) {
+        specimen.textContent = sampleText.value;
+      }
+    });
+
+    fontSize.addEventListener("input", () => {
+      fontSizeValue.value = `${fontSize.value}px`;
+      for (const specimen of fontList.querySelectorAll(".specimen:not(.error)")) {
+        specimen.style.fontSize = `${fontSize.value}px`;
+      }
+    });
+
+    document.addEventListener("dragover", event => event.preventDefault());
+    document.addEventListener("drop", event => {
+      event.preventDefault();
+      if (event.dataTransfer.files.length > 0) {
+        loadFiles(event.dataTransfer.files);
+      }
+    });
+  </script>
+</body>
+</html>
